@@ -269,3 +269,77 @@ Founded in 2023, ByteDance Seed Team is dedicated to crafting the industry's mos
 ---
 
 We are HIRING! Send us an [email](mailto:the.verl.project@gmail.com) if you are interested in internship/FTE opportunities in RL for agents.
+
+
+
+Installation
+
+```
+conda create -n tinygrpo python=3.10
+conda activate tinygrpo
+pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+pip3 install vllm==0.6.3 # or you can install 0.5.4, 0.4.2 and 0.3.1
+pip3 install ray
+# verl
+pip install -e .
+# conda install -c nvidia cuda-nvcc=12.1
+MAX_JOBS=4 pip3 install flash-attn --no-build-isolation
+pip install wandb IPython matplotlib
+```
+
+test verl
+data process
+```
+python3 examples/data_preprocess/gsm8k.py \
+--local_dataset_path /mnt/sdb1/sdb1_xiaojinsong/datasets/openai/gsm8k \
+--local_save_dir /mnt/sdb1/sdb1_xiaojinsong/datasets/openai/gsm8k
+```
+
+train
+```
+local_dataset_path=/mnt/sdb1/sdb1_xiaojinsong/datasets
+local_model_path=/mnt/sdb1/sdb1_xiaojinsong/llms
+HF_USE_FLASH_ATTENTION_2=0
+FLASH_ATTENTION_SKIP=1
+
+
+python3 -m verl.trainer.main_ppo \
+    algorithm.adv_estimator=grpo \
+    data.train_files=$local_dataset_path/openai/gsm8k/train.parquet \
+    data.val_files=$local_dataset_path/openai/gsm8k/test.parquet \
+    data.train_batch_size=256 \
+    data.max_prompt_length=128 \
+    data.max_response_length=256 \
+    data.filter_overlong_prompts=True \
+    data.truncation='error' \
+    actor_rollout_ref.model.path=$local_model_path/Qwen/Qwen3-0.6B \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.model.use_remove_padding=True \
+    actor_rollout_ref.actor.ppo_mini_batch_size=20 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=5 \
+    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.kl_loss_coef=0.001 \
+    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+    actor_rollout_ref.actor.entropy_coeff=0 \
+    actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.actor.fsdp_config.param_offload=False \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=5 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
+    actor_rollout_ref.rollout.n=3 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=5 \
+    actor_rollout_ref.ref.fsdp_config.param_offload=True # new \
+    actor_rollout_ref.model.attn_implementation=sdpa \
+    algorithm.use_kl_in_reward=False \
+    trainer.critic_warmup=0 \
+    trainer.logger='["console","wandb"]' \
+    trainer.project_name='verl_grpo_example_gsm8k' \
+    trainer.experiment_name='qwen3_0_5b_function_rm' \
+    trainer.n_gpus_per_node=2 \
+    trainer.nnodes=1 \
+    trainer.save_freq=20 \
+    trainer.test_freq=5 \
+    trainer.total_epochs=5 $@
+```
